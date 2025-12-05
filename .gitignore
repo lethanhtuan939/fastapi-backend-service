@@ -6,7 +6,7 @@
 *.sqlite3
 
 # Ignore coverage reports
-htmlcov/
+tests/htmlcov/
 .coverage
 .coverage.*
 .cache

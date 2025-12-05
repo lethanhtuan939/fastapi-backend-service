@@ -1,11 +1,10 @@
+from pydantic import BaseModel, Field
 from typing import Generic, TypeVar, Optional, Any, List, Dict
-from pydantic import Field
-from pydantic.generics import GenericModel
 
 DataT = TypeVar("DataT")
 
 
-class APIResponse(GenericModel, Generic[DataT]):
+class APIResponse(BaseModel, Generic[DataT]):
     code: int = Field(...)
     status: str = Field(...)
     message: Optional[str] = Field(None)
@@ -15,6 +14,7 @@ class APIResponse(GenericModel, Generic[DataT]):
     url: Optional[str] = Field(None)
     timestamp: Optional[str] = Field(None)
 
-    class Config:
-        from_attributes = True
-        json_encoders = {}
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+    }
