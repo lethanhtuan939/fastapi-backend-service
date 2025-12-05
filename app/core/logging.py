@@ -47,7 +47,7 @@ def setup_logging():
     logger.add(
         sys.stdout,
         format="""
-<green>{time:YYYY-MM-DD HH:mm:ss}</green> │ <level>{level: <8}</level> │ <blue>{name}</blue>:<cyan>{function}</cyan>:<yellow>{line}</yellow> │ <level>{message}</level>
+            <green>{time:YYYY-MM-DD HH:mm:ss}</green> │ <level>{level: <8}</level> │ <blue>{name}</blue>:<cyan>{function}</cyan>:<yellow>{line}</yellow> │ <level>{message}</level>
         """.strip(),
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         colorize=True,
@@ -103,51 +103,45 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         body_bytes = b""
-        body_log = None
-        if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-            try:
-                body_bytes = await request.body()
-                if body_bytes:
-                    body_str = body_bytes.decode("utf-8", errors="ignore")
-                    try:
-                        parsed = json.loads(body_str)
-                        body_log = json.dumps(parsed, indent=2, ensure_ascii=False)
-                    except:
-                        body_log = body_str
-
-                if body_log is not None:
-                    request._body = body_bytes
-                else:
-                    body_log = {}
-            except Exception as e:
-                body_log = f"<error reading body: {e}>"
 
         with logger.contextualize(request_id=request_id, user_id=user_id):
+            body_dict = "{}"
+            start_time = time.perf_counter()
+
+            has_body = request.method in ("POST", "PUT", "PATCH", "DELETE")
+            if has_body:
+                try:
+                    body_bytes = await request.body()
+                    if body_bytes:
+                        body_str = body_bytes.decode("utf-8", errors="ignore")
+                        try:
+                            parsed = json.loads(body_str)
+                            body_dict = json.dumps(parsed, indent=2, ensure_ascii=False)
+                        except:
+                            body_dict = body_str
+                    request._body = body_bytes
+                except Exception as e:
+                    body_dict = f"<error reading body: {e}>"
+
             try:
                 response = await call_next(request)
                 duration = time.perf_counter() - start_time
 
                 logger.info(
-                    f"Request successful - {request.method} - {str(request.url)} - {body_log} - {response.status_code} in {duration:.4f}s",
-                    method=request.method,
-                    url=str(request.url),
-                    status=response.status_code,
-                    duration=f"{duration:.4f}s",
+                    f"Request successful | {request.method} {request.url} → {response.status_code} in {duration:.4f}s",
                     client_ip=request.client.host,
-                    body=body_log,
+                    body=body_dict or "{}",
                 )
+                logger.info(body_dict)
                 return response
 
             except Exception as e:
                 duration = time.perf_counter() - start_time
                 logger.exception(
-                    f"Request failed - {request.method} - {str(request.url)} - {body_log} - error: {e} in {duration:.4f}s",
-                    method=request.method,
-                    url=str(request.url),
-                    duration=f"{duration:.4f}s",
-                    error=str(e),
-                    body=body_log,
+                    f"Request failed | {request.method} {request.url} → {str(e)[:100]} in {duration:.4f}s",
+                    body=body_dict or "{}",
                 )
+                logger.info(body_dict)
                 raise
 
 

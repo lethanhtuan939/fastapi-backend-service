@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, status
+from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.schemas.user import UserCreate, UserResponse
-from app.services.user_service import create_user, get_user, get_users
+from app.services.user_service import create_user, get_user, get_users_paginated
 from app.dependencies import get_db
 from app.middleware.response import build_response
 from app.schemas.response import APIResponse
@@ -39,16 +39,23 @@ async def create_new_user(
 )
 async def read_users(
     request: Request,
-    offset: int = 0,
-    limit: int = 20,
+    page_no: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1),
     db: Session = Depends(get_db),
 ):
-    users = get_users(db, offset=offset, limit=limit)
+    result = get_users_paginated(db, page_no=page_no, page_size=page_size)
     return build_response(
         request=request,
-        data=users,
+        data=result["items"],
         message=get_message(MessageCode.USER_LIST_RETRIEVED, request.state.lang),
-        meta={"total": len(users), "page": (offset // limit) + 1, "limit": limit},
+        meta={
+            "total": result["total"],
+            "page_no": result["page_no"],
+            "page_size": result["page_size"],
+            "total_pages": result["total_pages"],
+            "has_next": result["has_next"],
+            "has_prev": result["has_prev"],
+        },
     )
 
 
