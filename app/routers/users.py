@@ -1,4 +1,3 @@
-# app/routers/users.py
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -9,6 +8,7 @@ from app.dependencies import get_db
 from app.middleware.response import build_response
 from app.schemas.response import APIResponse
 from app.core.messages import get_message, MessageCode
+from app.core.logging import logger
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -58,6 +58,7 @@ async def read_users(
     responses={404: {"model": APIResponse[None], "description": "User not found"}},
 )
 async def read_user(user_id: str, request: Request, db: Session = Depends(get_db)):
+    logger.info(f"Fetching user with ID: {user_id}")
     user = get_user(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

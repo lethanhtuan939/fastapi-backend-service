@@ -38,3 +38,5 @@ alembic/
 
 # Ignore virtual environment
 .venv/
+logs/
+*.log.zip

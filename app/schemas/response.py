@@ -1,8 +1,6 @@
-# app/schemas/response.py
 from typing import Generic, TypeVar, Optional, Any, List, Dict
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydantic.generics import GenericModel
-from fastapi import Request
 
 DataT = TypeVar("DataT")
 

@@ -1,4 +1,4 @@
-# app/main.py
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.routers import users
@@ -10,6 +10,7 @@ from app.middleware.exception_handler import (
 from app.middleware.language import LanguageMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.core.logging import logger, RequestLoggingMiddleware
 
 app = FastAPI(
     title="Backend Service",
@@ -17,6 +18,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
     docs_url="/docs",
 )
+
+# Setup logging
+app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(LanguageMiddleware)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
