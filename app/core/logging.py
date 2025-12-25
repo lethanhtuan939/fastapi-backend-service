@@ -1,148 +1,129 @@
-# app/core/logging.py
 import logging
 import sys
 import os
-from loguru import logger
 import time
-from uuid import uuid4
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+import uuid
 import json
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.core.context import correlation_id, if_id, request_id
+from app.core.config import settings
 
 
-class InterceptHandler(logging.Handler):
-    """Route standard library logging records through loguru, preserving level and exception info."""
+class OneLineExceptionFormatter(logging.Formatter):
+    def formatException(self, exc_info):
+        result = super(OneLineExceptionFormatter, self).formatException(exc_info)
+        return repr(result)
 
-    def emit(self, record):
+    def format(self, record):
+        s = super(OneLineExceptionFormatter, self).format(record)
+
+        if record:
+            s = s.replace("\r\n", "")
+            s = s.replace("\n", "")
+        return s
+
+
+class ContextFilter(logging.Filter):
+    """ "Provides correlation id parameter for the logger"""
+
+    def filter(self, record):
         try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
-        frame, depth = sys._getframe(6), 6
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+            record.correlation_id = correlation_id.get()
+        except LookupError:
+            record.correlation_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+            
+        try:
+            record.if_id = str(if_id.get()).upper()
+        except LookupError:
+            record.if_id = "IF-0000"
+            
+        try:
+            record.request_id = str(request_id.get()).upper()
+        except LookupError:
+            record.request_id = "0000"
+            
+        return True
 
 
-def setup_logging():
-    """Configure global logging.
+# common formatter
+formatter = OneLineExceptionFormatter(
+    "%(asctime)-15s - [SYSTEM] - [%(if_id)s] - %(name)-5s - %(request_id)s - %(levelname)s - [%(filename)s:%(lineno)s - %(funcName)s() ] - %(message)s"
+)
 
-    - Intercept uvicorn/fastapi logs
-    - Add a pretty console sink
-    - Add a rotating JSON file sink (for ELK)
-    - Set custom colors for log levels
+# root logger
+# We use a broad name to capture app logs. User requested "app.fastapi.project". 
+# Ensuring 'app' logs are captured.
+logger = logging.getLogger("app.fastapi.project")
+logger.setLevel(logging.DEBUG)
 
-    Returns:
-        configured loguru logger
-    """
-    for name in ["uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"]:
-        logging.getLogger(name).handlers = [InterceptHandler()]
-        logging.getLogger(name).propagate = False
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
 
-    logger.remove()
+logger.addHandler(console_handler)
+logger.addFilter(ContextFilter())
 
-    logger.add(
-        sys.stdout,
-        format="""
-            <green>{time:YYYY-MM-DD HH:mm:ss}</green> │ <level>{level: <8}</level> │ <blue>{name}</blue>:<cyan>{function}</cyan>:<yellow>{line}</yellow> │ <level>{message}</level>
-        """.strip(),
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        colorize=True,
-        backtrace=True,
-        diagnose=True,
+# sql logger
+sql_logger = logging.getLogger("sqlalchemy.engine.Engine")
+sql_logger.setLevel(logging.INFO)
+
+sql_logger.addHandler(console_handler)
+sql_logger.addFilter(ContextFilter())
+
+# log to file if local/configured
+if settings.ENVIRONMENT.upper() == "LOCAL":
+    log_file_path = settings.LOG_FILE_PATH
+    log_dir = os.path.dirname(log_file_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        
+    file_handler = logging.FileHandler(
+        log_file_path, "w", encoding="utf-8"
     )
+    file_handler.setFormatter(formatter)
 
-    os.makedirs("logs", exist_ok=True)
-    logger.add(
-        "logs/app.log",
-        rotation="500 MB",
-        retention="30 days",
-        compression="zip",
-        enqueue=True,
-        serialize=True,
-        level="INFO",
-    )
+    logger.addHandler(file_handler)
+    logger.addFilter(ContextFilter())
 
-    logger.level("INFO", color="<bold><blue>")
-    logger.level("WARNING", color="<bold><yellow>")
-    logger.level("ERROR", color="<bold><red>")
-    logger.level("CRITICAL", color="<bold><red><on white>")
-    logger.level("SUCCESS", color="<bold><green>")
-    logger.level("DEBUG", color="<magenta>")
+    sql_logger.addHandler(file_handler)
+    sql_logger.addFilter(ContextFilter())
 
-    return logger
+# stop delegate logs to root logger (avoid duplicate logs)
+sql_logger.propagate = False
+logger.propagate = False
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware to log incoming HTTP requests and responses.
-
-    - Skips documentation and health endpoints.
-    - Safely reads request body for POST/PUT/PATCH/DELETE and preserves it
-      so downstream handlers can still access it.
-    - Adds contextual request_id and user_id to logs and logs duration,
-      status, client IP, and body (if available).
-    """
-
     async def dispatch(self, request: Request, call_next):
-        if any(
-            request.url.path.startswith(p)
-            for p in ["/docs", "/redoc", "/openapi.json", "/health"]
-        ):
-            return await call_next(request)
-
-        request_id = str(uuid4())[:8]
-        user_id = (
-            getattr(getattr(request.state, "user", None), "u_id", "anonymous")
-            if hasattr(request.state, "user")
-            else "anonymous"
-        )
+        # Set context variables
+        req_id = str(uuid.uuid4())
+        corr_id = uuid.uuid4()
+        
+        token_request_id = request_id.set(req_id[:8]) # Shorten for readability if desired, or keep full
+        token_correlation_id = correlation_id.set(corr_id)
+        token_if_id = if_id.set("IF-0001") # Example static/dynamic
 
         start_time = time.perf_counter()
+        
+        # Log Request
+        logger.info(f"Incoming request: {request.method} {request.url}")
 
-        body_bytes = b""
-
-        with logger.contextualize(request_id=request_id, user_id=user_id):
-            body_dict = "{}"
-            start_time = time.perf_counter()
-
-            has_body = request.method in ("POST", "PUT", "PATCH", "DELETE")
-            if has_body:
-                try:
-                    body_bytes = await request.body()
-                    if body_bytes:
-                        body_str = body_bytes.decode("utf-8", errors="ignore")
-                        try:
-                            parsed = json.loads(body_str)
-                            body_dict = json.dumps(parsed, indent=2, ensure_ascii=False)
-                        except:
-                            body_dict = body_str
-                    request._body = body_bytes
-                except Exception as e:
-                    body_dict = f"<error reading body: {e}>"
-
-            try:
-                response = await call_next(request)
-                duration = time.perf_counter() - start_time
-
-                logger.info(
-                    f"Request successful | {request.method} {request.url} → {response.status_code} in {duration:.4f}s",
-                    client_ip=request.client.host,
-                    body=body_dict or "{}",
-                )
-                logger.info(body_dict)
-                return response
-
-            except Exception as e:
-                duration = time.perf_counter() - start_time
-                logger.exception(
-                    f"Request failed | {request.method} {request.url} → {str(e)[:100]} in {duration:.4f}s",
-                    body=body_dict or "{}",
-                )
-                logger.info(body_dict)
-                raise
-
-
-logger = setup_logging()
+        try:
+            response = await call_next(request)
+            
+            process_time = time.perf_counter() - start_time
+            logger.info(
+                f"Request finished: {request.method} {request.url} - Status: {response.status_code} - Time: {process_time:.4f}s"
+            )
+            return response
+        except Exception:
+            process_time = time.perf_counter() - start_time
+            logger.exception(
+                f"Request failed: {request.method} {request.url} - Time: {process_time:.4f}s"
+            )
+            raise
+        finally:
+            # Reset tokens
+            request_id.reset(token_request_id)
+            correlation_id.reset(token_correlation_id)
+            if_id.reset(token_if_id)

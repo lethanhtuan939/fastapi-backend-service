@@ -27,13 +27,13 @@ Before running the project, ensure you have the following installed:
 
 3.  Update the `.env` file with your specific configuration values:
     ```env
-    DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+    DATABASE_URL="postgresql+psycopg://user:password@localhost:5432/dbname"
     POSTGRES_USER="user"
     POSTGRES_PASSWORD="password"
     POSTGRES_DB="dbname"
     SECRET_KEY="your_super_secret_key"
     ```
-    *Note: For Docker, use `db` or `postgres` (service name) as the host in `DATABASE_URL` instead of `localhost`, e.g., `postgresql://user:password@postgres:5432/dbname`.*
+    *Note: The project uses `psycopg` (v3). Use `postgresql+psycopg://` scheme. For Docker, use `db` or `postgres` as host: `postgresql+psycopg://user:password@postgres:5432/dbname`.*
 
 ## Running Locally
 
