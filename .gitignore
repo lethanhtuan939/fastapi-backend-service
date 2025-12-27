@@ -30,12 +30,6 @@ __pycache__/
 logs/
 *.log
 
-# Ignore migrations
-migrations/
-*/migrations/
-alembic.ini
-alembic/
-
 # Ignore virtual environment
 .venv/
 logs/

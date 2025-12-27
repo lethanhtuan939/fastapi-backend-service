@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from app.routers import users
+from app.routers import users, auth
 from app.middleware.exception_handler import (
     http_exception_handler,
     validation_exception_handler,
@@ -29,3 +29,4 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # === Include routers ===
 app.include_router(users.router)
+app.include_router(auth.router)

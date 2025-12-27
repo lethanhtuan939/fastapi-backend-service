@@ -32,6 +32,9 @@ Before running the project, ensure you have the following installed:
     POSTGRES_PASSWORD="password"
     POSTGRES_DB="dbname"
     SECRET_KEY="your_super_secret_key"
+    ALGORITHM="algorithm"
+    ACCESS_TOKEN_EXPIRE_MINUTES=30
+    REFRESH_TOKEN_EXPIRE_MINUTES=10080
     ```
     *Note: The project uses `psycopg` (v3). Use `postgresql+psycopg://` scheme. For Docker, use `db` or `postgres` as host: `postgresql+psycopg://user:password@postgres:5432/dbname`.*
 
@@ -62,13 +65,21 @@ Ensure you have a PostgreSQL instance running. You can start one using Docker if
 docker run --name local-postgres -e POSTGRES_PASSWORD=password -e POSTGRES_USER=user -e POSTGRES_DB=dbname -p 5432:5432 -d postgres:15-alpine
 ```
 
-Initialize the database schema using the `init.sql` script (requires `psql` or a database client):
+### 4. Run Migrations (Alembic)
 
+Initialize the database schema using Alembic:
+
+```bash
+alembic upgrade head
+```
+This will create all necessary tables (including `users` and `tbl_token`).
+
+*(Optional)* You can still use `init.sql` for seeding initial data if needed, but schema compliance is managed by Alembic.
 ```bash
 psql -h localhost -U user -d dbname -f init.sql
 ```
 
-### 4. Run the Application
+### 5. Run the Application
 
 Start the development server using `uvicorn`:
 
@@ -93,7 +104,7 @@ To run the entire application stack (API + Database) using Docker Compose:
 docker-compose up --build
 ```
 
-The service will start, and the database will be automatically initialized with `init.sql`.
+The service will start, and the database will be automatically initialized.
 
 *   API: `http://localhost:8000`
 *   Docs: `http://localhost:8000/docs`
@@ -103,6 +114,6 @@ The service will start, and the database will be automatically initialized with 
 To run the test suite, ensure your virtual environment is active and dependencies are installed, then run:
 
 ```bash
-pytest
+pytest -v
 ```
 This will run all tests defined in the `tests/` directory and generate a coverage report.
